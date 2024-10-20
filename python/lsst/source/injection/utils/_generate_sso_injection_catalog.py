@@ -129,9 +129,9 @@ def generate_sso_injection_catalog(
         The input parameters used to generate the orbital elements are popped
         off kqargs, any parameters remaining are added to the output catalog.
         Each remaining parameter key will be used as a column name in the catalog.
-        The values are the unique values for that parameter. The output catalog will
-        contain a row for each unique combination of input parameters and be generated
-        the number of times specified by ``number``.
+        The values are the unique values for that parameter. The output catalog
+        will contain a row for each unique combination of input parameters and
+        be generated the number of times specified by ``number``.
 
     Returns
     -------
@@ -214,7 +214,7 @@ def generate_sso_injection_catalog(
     source_table = hstack([injection_id, source_table, param_table])
     source_table.remove_column("version_id")
 
-    # add meta data to indicate the epoch of the orbits and that this is an SSO catalog
+    # add meta data to indicate the epoch of the orbits
     source_table.meta['MJD'] = MJD
     source_table.meta['SSO'] = True
 
