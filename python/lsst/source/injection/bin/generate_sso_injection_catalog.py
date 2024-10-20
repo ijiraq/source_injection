@@ -27,7 +27,7 @@ from argparse import SUPPRESS, ArgumentParser
 
 from lsst.daf.butler import Butler
 
-from ..utils import generate_sso_injection_catalog
+from ..utils import generate_sso_injection_catalog, ingest_injection_catalog
 from .source_injection_help_formatter import SourceInjectionHelpFormatter
 
 
@@ -80,7 +80,6 @@ will be generated using Cartesian geometry.
         help="Right ascension of the catalog centre, in degrees.",
         required=True,
         metavar="VALUE",
-        nargs=1,
     )
     parser_general.add_argument(
         "-d",
@@ -89,16 +88,14 @@ will be generated using Cartesian geometry.
         help="Declination limits of the catalog centre, in degrees.",
         required=True,
         metavar="VALUE",
-        nargs=1,
     )
     parser_general.add_argument(
         "-r",
-        "--radius",
+        "--fov",
         type=float,
-        help="Radius of the catalog in degrees.",
+        help="Diameter of the catalog field of view, in degrees.",
         required=False,
         metavar="VALUE",
-        nargs=1,
     )
     parser_general.add_argument(
         "-m",
@@ -107,7 +104,6 @@ will be generated using Cartesian geometry.
         help="The magnitude limits of the catalog in magnitudes.",
         required=False,
         metavar="VALUE",
-        nargs=2,
     )
     parser_general.add_argument(
         "-n",
@@ -294,7 +290,7 @@ def main():
     table = generate_sso_injection_catalog(
         ra_centre=args.ra_centre,
         dec_centre=args.dec_centre,
-        theta=args.radius,
+        fov=args.fov,
         mag_lim=mag_lim,
         wcs=wcs,
         number=args.number,

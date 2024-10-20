@@ -3,6 +3,7 @@ from astropy.coordinates import SkyCoord, GCRS
 from astropy.coordinates import EarthLocation
 from astropy.coordinates import solar_system_ephemeris
 from astropy.table import Table
+from astropy.time import Time
 from lsst.afw.image import VisitInfo
 import numpy as np
 
@@ -120,27 +121,27 @@ def compute_E(e: np.array, M: np.array) -> np.array:
     return E
 
 
-def get_particle_coordinates(orbits) -> SkyCoord:
+def kepToHelioCartSkyCoord(orbits: Table) -> SkyCoord:
     """
-    Given a set of keplarian orbital elements with M propagated to the epoch
+    Provide SkyCoord object for a Table of keplarian orbital elements.
     """
     xyz = keplerian_to_cartesian(**orbits['a', 'e', 'inc', 'Omega', 'omega', 'M'])
-
-    coords = SkyCoord(x=xyz[0], y=xyz[1], z=xyz[2],
-                      unit='au', obstime=orbits.meta['obstime'],
-                      frame='heliocentrictrueecliptic',
-                      representation_type='cartesian')
-    return coords
+    return SkyCoord(x=xyz[0], y=xyz[1], z=xyz[2],
+                    unit='au', obstime=Time(orbits.meta['MJD'], format='mjd'),
+                    frame='heliocentrictrueecliptic',
+                    representation_type='cartesian')
 
 
-def propagate_orbits(orbits, obstime) -> Table:
+def propagate_orbits(orbits, mjd) -> Table:
     """
-    Propogate the given table of orbits from orbit.meta['epoch'] to 'obstime'
-    """
-    delta_time = obstime - orbits.meta['obstime']
+    Propogate the given table of orbits from orbit.meta['epoch'] to given mjd.
 
+    The orbits database must have orbits.meta['MJD'] of the 'M' given in the table.
+    """
+
+    delta_time = (mjd - orbits.meta['MJD']) * units.day
     orbits['M'] = orbits['M'] + delta_time * 2 * np.pi / (orbits['a'] ** (3 / 2) * units.year)
-    orbits.meta['obstime'] = obstime
+    orbits.meta['MJD'] = mjd
     return orbits
 
 
@@ -166,8 +167,8 @@ def propagate_injection_catalog(orbits: Table, visitInfo: VisitInfo) -> Table:
     of the visit described by visitInfo
     """
     reference_frame = get_reference_frame(visitInfo)
-    orbits = propagate_orbits(orbits, reference_frame.obstime)
-    coordinates = get_particle_coordinates(orbits)
+    orbits = propagate_orbits(orbits, reference_frame.obstime.mjd)
+    coordinates = kepToHelioCartSkyCoord(orbits)
     orbits['r'] = np.sqrt(coordinates.x * coordinates.x +
                           coordinates.y * coordinates.y +
                           coordinates.z * coordinates.z)
@@ -179,5 +180,4 @@ def propagate_injection_catalog(orbits: Table, visitInfo: VisitInfo) -> Table:
                                        orbits['delta'],
                                        1,
                                        orbits['H'])
-    orbits.meta['MJD'] = reference_frame.obstime.mjd
     return orbits

@@ -35,9 +35,16 @@ from astropy.coordinates import SkyCoord
 from astropy import units
 from scipy.stats import qmc
 
+from lsst.afw.geom import SkyWcs
+
 from . import sso
 
-DEFAULT_ELEMENT_BOUNDS = {
+# to get area of ecliptic we take a sphere less two caps of 70 degrees
+AREA_OF_ECLIPTIC = (180/np.pi)**2*(4*np.pi -
+                                   2*(4*np.pi*(np.sin(np.radians(70)/2)**2)))
+
+
+DEFAULT_ELEMENT_LIMITS = {
     'a_limits': (30, 250),
     'e_limits': (0, 1E-5),
     'inc_limits': (0, np.pi),
@@ -46,18 +53,21 @@ DEFAULT_ELEMENT_BOUNDS = {
     'M_limits': (0, 2 * np.pi),
 }
 
-DEFAULT_MJD = Time("J2000.0").mjd
-DEFAULT_DENSITY = 2000  # about 50 sources per HSC detector
-DEFAULT_THETA = 10  # degrees
-MAG_LIM = (21, 28)
+DEFAULT_PARAMETERS = {
+    'mjd': Time("J2000.0").mjd,
+    'density': 2000,  # /sq.deg which is about 50 sources per HSC detector
+    'fov': 10,  # catalog FOV in degrees 
+    'mag_lim': (21, 28),  # Appropriate for 4 hours on Subaru HSC
+}
 
 
 def generate_sso_injection_catalog(
         ra_centre: float,
         dec_centre: float,
         mag_lim: Sequence[float] | None = None,
-        theta: float | None = None,
-        MJD: float | None = None,
+        wcs: SkyWcs = None,
+        fov: float | None = None,
+        mjd: float | None = None,
         density: int | None = None,
         number: int = 1,
         seed: Any = None,
@@ -102,24 +112,24 @@ def generate_sso_injection_catalog(
         The right ascension of the centre of the catalog in degrees.
     dec_centre : float
         The declination of the centre of the catalog in degrees.
-    theta: float
-        The radius of the fov of the catalog in degrees.
-    MJD : `astropy.time.Time`
+    fov: float
+        The diameter of the fov of the catalog in degrees.
+    mjd : float | Time("J2000").mjd
         The epoch of the orbit generated (M at this epoch puts the source in
         the heliocentric RA/DEC box set by ra_lim,dec_lim at that time)
     mag_lim : `Sequence` [`float`], optional
         The magnitude limits of the catalog in magnitudes.  The catalog has H
-        magnitudes assigned based on these magnitude limits being met at MJD.
+        magnitudes assigned based on these magnitude limits being met at mjd.
     number : `int`, optional
         The number of times to generate each unique combination of input
         parameters. The default is 1 (i.e., no repeats). This will be ignored
         if ``density`` is specified.
-    density : `int` | 500,
+    density : `int` | 2000,
         The desired source density in sources per square degree. If given, the
         ``number`` parameter will be ignored. Instead, the number of unique
         parameter combination generations will be calculated to achieve the
         desired density. The default is `None` (i.e., no density calculation).
-    seed : `Any`, optional
+    seed : `Any`, optional | None
         The seed to use for the Halton sequence. If not given or ``None``
         (default), the seed will be set using the product of the right
         ascension and declination limit ranges.
@@ -146,10 +156,16 @@ def generate_sso_injection_catalog(
     logger = logging.getLogger(__name__)
     logger.setLevel(log_level)
 
+    mag_lim = mag_lim is None and DEFAULT_PARAMETERS['mag_lim'] or mag_lim
+    density = density is None and DEFAULT_PARAMETERS['density'] or density
+    fov = fov is None and DEFAULT_PARAMETERS['fov'] or fov
+    mjd = mjd is None and DEFAULT_PARAMETERS['mjd'] or mjd
+
     elements = ['a', 'e', 'inc', 'Omega', 'omega', 'M']
-    limits = [kwargs.pop(f"{f}_limits", DEFAULT_ELEMENT_BOUNDS[f"{f}_limits"]) for f in elements]
-    if mag_lim is None:
-        mag_lim = MAG_LIM
+    limits = [kwargs.pop(f"{f}_limits",
+                         DEFAULT_ELEMENT_LIMITS[f"{f}_limits"])
+              for f in elements]
+
     limits.append(mag_lim)
     elements.append('mag')
     lower_limits, upper_limits = np.array(limits).T
@@ -160,16 +176,20 @@ def generate_sso_injection_catalog(
 
     # Automatically calculate the number of generations if density is given.
     if density:
-        area = 4*np.pi * np.sin(np.radians(theta)/2)**2
+        area = 4*np.pi * np.sin(np.radians(fov)/4)**2
         area = area*(180/np.pi)**2
         rows = list(itertools.product(*values))
         number = np.round(density * area / len(rows)).astype(int)
         if number > 0:
             logger.info(
-                "Setting number of generations to %s, equivalent to %.1f sources per square degree.",
-                number, density*area)
+                (f"Setting number of generations to {number}, "
+                 f"equivalent to {number/area:.1f} sources per square degree.")
+            )
         else:
-            logger.warning("Requested source density would require number < 1; setting number = 1.")
+            logger.warning(
+                ("Requested source density would require number < 1; "
+                 "setting number = 1.")
+            )
             number = 1
 
     # Generate the fully expanded parameter table.
@@ -177,26 +197,28 @@ def generate_sso_injection_catalog(
     keys = list(kwargs.keys())
     keys.append("version_id")
     param_table = Table(rows=list(itertools.product(*values)), names=keys)
-
+    logger.info(f"Area of ecliptic {AREA_OF_ECLIPTIC}")
+    logger.info(f"Aera of patch {area}")
+    number_per_loop = len(param_table)*AREA_OF_ECLIPTIC/area
+    number_per_loop = int(min(number_per_loop, 1E6))
+    logger.info(f"Generating {number_per_loop} orbits per iteration.")
     sampler = qmc.Halton(d=len(elements), seed=seed)
+    num_of_workers = number_per_loop > 1E3 and -1 or 1
     source_table = None
     while True:
-        sample = sampler.random(n=len(param_table))
+        logger.info((f"Creating {number_per_loop} orbits using "
+                     f"{num_of_workers} workers"))
+        sample = sampler.random(n=number_per_loop, workers=num_of_workers)
         # generate a distribution of orbital elements
         orbits = Table(qmc.scale(sample, lower_limits, upper_limits),
-                       names=elements)
-        # compute where they are on the sky
-        xyz = sso.keplerian_to_cartesian(**orbits['a', 'e', 'inc', 'Omega', 'omega', 'M'])
-        ra_dec_cords = SkyCoord(x=xyz[0], y=xyz[1], z=xyz[2],
-                                unit='au', obstime=Time(MJD, format='mjd'),
-                                frame='heliocentrictrueecliptic',
-                                representation_type='cartesian').transform_to('icrs')
-        # record the ra, dec and observation time in the table
-        orbits['ra'] = ra_dec_cords.ra.deg
-        orbits['dec'] = ra_dec_cords.dec.deg
-        # select only those that are within the field of view
-        centre = SkyCoord(ra=ra_centre, dec=dec_centre, unit='deg')
-        orbits = orbits[ra_dec_cords.separation(centre) < theta*units.degree]
+                       names=elements, meta={"MJD": mjd, "SSO": True})
+        coords = sso.kepToHelioCartSkyCoord(orbits).transform_to('icrs')
+        orbits['ra'] = coords.ra.deg
+        orbits['dec'] = coords.dec.deg
+        
+        # select orbits whose current position is within the desired FOV
+        field_centre = SkyCoord(ra=ra_centre, dec=dec_centre, unit='deg')
+        orbits = orbits[coords.separation(field_centre) < (fov/2)*units.degree]
 
         # build the full table of orbits and loop if we need more orbits
         # after having limited to those in the fov to reach the desired number
@@ -207,18 +229,16 @@ def generate_sso_injection_catalog(
         if len(source_table) >= len(param_table):
             break
 
+    # truncate the source table so length matches param_table
     source_table = source_table[:len(param_table)]
+
     # Generate the unique injection ID and construct the final table.
     source_id = np.concatenate([([i] * number) for i in range(int(len(param_table) / number))])
     injection_id = param_table["version_id"] + source_id * int(10 ** np.ceil(np.log10(number)))
     injection_id.name = "injection_id"
     source_table = hstack([injection_id, source_table, param_table])
     source_table.remove_column("version_id")
-
-    # add meta data to indicate the epoch of the orbits
-    source_table.meta['MJD'] = MJD
-    source_table.meta['SSO'] = True
-
+    
     # Final logger report and return.
     if number == 1:
         extra_info = f"{len(source_table)} unique sources."
@@ -227,5 +247,6 @@ def generate_sso_injection_catalog(
         grammar = "combination" if num_combinations == 1 else "combinations"
         extra_info = f"{len(source_table)} sources: {num_combinations} {grammar} repeated {number} times."
     logger.info("Generated an injection catalog containing %s", extra_info)
+    
     return source_table
 
