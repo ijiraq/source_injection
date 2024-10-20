@@ -35,16 +35,19 @@ def apparent_magnitude(r: np.ndarray[float],
 
 def keplerian_to_cartesian(**orbits: dict[str: np.ndarray]) -> np.ndarray:
     """
-    This routine transforms keplerian elements into cartesian elements
-    (only positions are computed).
+    Compute the cartesian positional elements given a set of keplerian elements
 
     Parameters
-    a: semi-major axis (AU)
-    e: eccentricity
-    inc: inclination (radians)
-    Omega: longitude of the ascending node (radians)
-    omega: argument of the pericentre (radians)
-    M: mean anomaly (radians)
+    ----------
+    orbits: dict
+
+    orbits contains the following keys:
+        a: semi-major axis (AU)
+        e: eccentricity
+        inc: inclination (radians)
+        Omega: longitude of the ascending node (radians)
+        omega: argument of the pericentre (radians)
+        M: mean anomaly (radians)
 
     """
     M = orbits["M"] % (2 * np.pi)
@@ -87,7 +90,7 @@ def keplerian_to_cartesian(**orbits: dict[str: np.ndarray]) -> np.ndarray:
 
 def compute_E(e: np.array, M: np.array) -> np.array:
     """
-    Compute the eccentric anomaly E from the mean anomaly M and the eccentricity.
+    Compute the eccentric anomaly E from mean anomaly M and eccentricity.
 
     e: eccentricity
     M: mean anomaly (radians)
