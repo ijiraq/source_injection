@@ -37,6 +37,7 @@ from lsst.pipe.base import PipelineTask, PipelineTaskConfig, PipelineTaskConnect
 from lsst.pipe.base.connectionTypes import PrerequisiteInput
 
 from .inject_engine import generate_galsim_objects, inject_galsim_objects_into_exposure
+from .utils import sso
 
 
 class BaseInjectConnections(
@@ -225,6 +226,12 @@ class BaseInjectTask(PipelineTask):
                 raise RuntimeError(
                     "No injection sources overlap the data query. Check injection catalog coverage."
                 )
+
+        # Check for any injection catalog that might be an SSO orbit catalog.
+        for idx, injection_catalog in enumerate(injection_catalogs):
+            if injection_catalog.meta.get("SSO", False):
+                injection_catalogs[idx] = sso.propagate_injection_catalog(injection_catalog,
+                                                                          input_exposure)
 
         # Consolidate injection catalogs and compose main injection catalog.
         injection_catalog = self._compose_injection_catalog(injection_catalogs)
