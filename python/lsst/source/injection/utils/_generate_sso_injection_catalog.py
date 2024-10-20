@@ -128,7 +128,7 @@ def generate_sso_injection_catalog(
     **kwargs : `Any`
         The input parameters used to generate the orbital elements are popped
         off kqargs, any parameters remaining are added to the output catalog.
-        Each remaining parameter key will be used as a column name in the catalog.
+        Each remaining parameter key will be a column name in the catalog.
         The values are the unique values for that parameter. The output catalog
         will contain a row for each unique combination of input parameters and
         be generated the number of times specified by ``number``.
@@ -154,7 +154,8 @@ def generate_sso_injection_catalog(
     elements.append('mag')
     lower_limits, upper_limits = np.array(limits).T
 
-    # Parse optional keyword input parameters, after having used up any element based ones.
+    # Parse optional keyword input parameters, after having used up any
+    # element based ones.
     values: list[Any] = [np.atleast_1d(x) for x in kwargs.values()]
 
     # Automatically calculate the number of generations if density is given.
