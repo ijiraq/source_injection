@@ -41,3 +41,4 @@ from ._generate_injection_catalog import *  # noqa: F401,F403
 from ._ingest_injection_catalog import *  # noqa: F401,F403
 from ._make_injection_pipeline import *  # noqa: F401,F403
 from ._generate_sso_injection_catalog import *  # noqa: F401,F403
+from . import sso

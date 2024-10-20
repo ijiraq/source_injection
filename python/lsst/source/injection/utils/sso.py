@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
 from astropy import units
 from astropy.coordinates import SkyCoord, GCRS
 from astropy.coordinates import EarthLocation
@@ -24,7 +22,6 @@ def apparent_magnitude(r: np.ndarray[float],
         robs (float): Sun-Observer distance
         h (float): absolute magnitude
         g (float): phase angle coefficient (following Bowell et al. 1989)
-        
     """
     denom = 2 * r * delta
     cos_alpha = (-robs ** 2 + delta ** 2 + r ** 2) / denom
@@ -38,11 +35,8 @@ def apparent_magnitude(r: np.ndarray[float],
 
 def keplerian_to_cartesian(**orbits: dict[str: np.ndarray]) -> np.ndarray:
     """
-        a: np.array, e: np.array,
-                           inc: np.array, Omega: np.array,
-                           omega: np.array, M: np.array) -> np.array:
-
-    This routine transforms keplerian elements into cartesian elements (positions only).
+    This routine transforms keplerian elements into cartesian elements
+    (only positions are computed).
 
     Parameters
     a: semi-major axis (AU)
@@ -93,7 +87,7 @@ def keplerian_to_cartesian(**orbits: dict[str: np.ndarray]) -> np.ndarray:
 
 def compute_E(e: np.array, M: np.array) -> np.array:
     """
-    Compute the eccentric anomaly E from the mean anomaly M and the eccentricity e.
+    Compute the eccentric anomaly E from the mean anomaly M and the eccentricity.
 
     e: eccentricity
     M: mean anomaly (radians)
@@ -125,8 +119,7 @@ def compute_E(e: np.array, M: np.array) -> np.array:
 
 def get_particle_coordinates(orbits) -> SkyCoord:
     """
-    Given a set of keplarian orbital elements with M propogated to the desired epoch 
-    provide the RA/Dec/Distance/Delta of those orbits as they would appear in the given image_wcs
+    Given a set of keplarian orbital elements with M propagated to the epoch
     """
     xyz = keplerian_to_cartesian(**orbits['a', 'e', 'inc', 'Omega', 'omega', 'M'])
 
@@ -150,7 +143,7 @@ def propagate_orbits(orbits, obstime) -> Table:
 
 def get_reference_frame(visitInfo) -> GCRS:
     """
-    Provides an astropy.coordinates reference_frame of the observer
+    Compute a GCRS reference frame at location and time of Visit info.
     """
     obstime = visitInfo.date.toAstropy()
     location = EarthLocation.from_geodetic(lon=visitInfo.getLongitude().asDegrees(),
@@ -165,6 +158,10 @@ def get_reference_frame(visitInfo) -> GCRS:
 
 
 def propagate_injection_catalog(orbits: Table, visitInfo: VisitInfo) -> Table:
+    """
+    Compute the heliocentric ecliptic coordinates of the orbits at the time
+    of the visit described by visitInfo
+    """
     reference_frame = get_reference_frame(visitInfo)
     orbits = propagate_orbits(orbits, reference_frame.obstime)
     coordinates = get_particle_coordinates(orbits)

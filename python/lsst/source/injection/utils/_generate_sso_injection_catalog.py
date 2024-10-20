@@ -35,7 +35,7 @@ from astropy.coordinates import SkyCoord
 from astropy import units
 from scipy.stats import qmc
 
-import sso as sso
+from . import sso
 
 DEFAULT_ELEMENT_BOUNDS = {
     'a_limits': (30, 250),
@@ -66,17 +66,19 @@ def generate_sso_injection_catalog(
 ) -> Table:
     """Generate a synthetic SSO source injection catalog.
 
-    This function generates synthetic orbits.  The orbits are within the given keplerian
-    orbit bounds and within the given ra/dec limits at the
+    This function generates synthetic orbits.  The orbits are within the given
+    keplerian orbit bounds and within the given ra/dec limits at the
     given observational epoch.  The catalog is returned as an astropy Table.
 
-    This source injection catalog is orbit based and is designed to be used with the
-    `sso_injection` plugin.
+    This source injection catalog is orbit based and is designed to be used
+    with the `sso_injection` plugin.
 
     Orbits are generated using the quasi-random Halton sequence.
 
-    **kwargs are used to specify the bounds of the keplerian orbital elements as well as
-    other arbitrary parameters that should be included in the output catalog.
+    **kwargs are used to specify the bounds of the keplerian orbital elements.
+    Other arbitrary parameters that should be included in the output catalog
+    are also passed in as kwargs.  The output catalog will contain a row for
+    each unique combination of input parameters that are not orbital elements.
 
     H magnitudes are also generated using the same sequence.
 
@@ -107,7 +109,7 @@ def generate_sso_injection_catalog(
         the heliocentric RA/DEC box set by ra_lim,dec_lim at that time)
     mag_lim : `Sequence` [`float`], optional
         The magnitude limits of the catalog in magnitudes.  The catalog has H
-        magnitudes assigned based on these magnitude limits being met at obstime.
+        magnitudes assigned based on these magnitude limits being met at MJD.
     number : `int`, optional
         The number of times to generate each unique combination of input
         parameters. The default is 1 (i.e., no repeats). This will be ignored
@@ -124,12 +126,12 @@ def generate_sso_injection_catalog(
     log_level : `int`, optional
         The log level to use for logging.
     **kwargs : `Any`
-        The input parameters used to generate the orbital elements are popped off kqargs,
-        any parameters remaining are added to the output catalog. Each remaining parameter key
-        will be used as a column name in the catalog. The values are the unique
-        values for that parameter. The output catalog will contain a row for
-        each unique combination of input parameters and be generated the number
-        of times specified by ``number``.
+        The input parameters used to generate the orbital elements are popped
+        off kqargs, any parameters remaining are added to the output catalog.
+        Each remaining parameter key will be used as a column name in the catalog.
+        The values are the unique values for that parameter. The output catalog will
+        contain a row for each unique combination of input parameters and be generated
+        the number of times specified by ``number``.
 
     Returns
     -------
