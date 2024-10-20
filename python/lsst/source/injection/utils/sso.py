@@ -5,7 +5,7 @@ from astropy.coordinates import SkyCoord, GCRS
 from astropy.coordinates import EarthLocation
 from astropy.coordinates import solar_system_ephemeris
 from astropy.table import Table
-from lsst.afw.geom import VisitInfo
+from lsst.afw.image import VisitInfo
 import numpy as np
 
 BOWELL_G = -0.12
