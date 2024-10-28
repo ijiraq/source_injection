@@ -46,7 +46,11 @@ def ingest_injection_catalog(
     are expected to contain the columns ``ra`` and ``dec``, with data in units
     of degrees. This spatial information will be used to shard up the source
     table on-disk using a depth 7 Hierarchical Triangular Mesh (HTM7) format.
-    HTM7 trixels have an area of ~0.315 square degreees.
+    HTM7 trixels have an area of ~0.315 square degreees. 
+
+    For SSO catalog we look for the 'day_obs' value in the .meta of the 
+    table and set the day_obs dimension to that value, otherwise day_obs
+    is set to J2000.
 
     Parameters
     ----------
@@ -97,6 +101,7 @@ def ingest_injection_catalog(
     dataset_refs: list[DatasetRef] = []
     for htm_index in set(htm_indices):
         table_subset = table[htm_indices == htm_index]
+        day_obs = table.meta.get('day_obs', "20000101")
         dataset_ref = writeable_butler.put(
             table_subset,
             table_dataset_type,

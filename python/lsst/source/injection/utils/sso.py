@@ -126,22 +126,24 @@ def kepToHelioCartSkyCoord(orbits: Table) -> SkyCoord:
     Provide SkyCoord object for a Table of keplarian orbital elements.
     """
     xyz = keplerian_to_cartesian(**orbits['a', 'e', 'inc', 'Omega', 'omega', 'M'])
+    obstime = Time.strptime(str(orbits.meta['day_obs']), '%Y%m%d')
     return SkyCoord(x=xyz[0], y=xyz[1], z=xyz[2],
-                    unit='au', obstime=Time(orbits.meta['MJD'], format='mjd'),
+                    unit='au', obstime=obstime,
                     frame='heliocentrictrueecliptic',
                     representation_type='cartesian')
 
 
 def propagate_orbits(orbits, mjd) -> Table:
     """
-    Propogate the given table of orbits from orbit.meta['epoch'] to given mjd.
+    Propogate the given table of orbits from orbit.meta['day_obs'] to given mjd.
 
-    The orbits database must have orbits.meta['MJD'] of the 'M' given in the table.
+    The orbits database must have orbits.meta['day_obs'] of the 'M' given in the table.
     """
-
-    delta_time = (mjd - orbits.meta['MJD']) * units.day
+    orbtime = Time.strptime(orbits.meta['day_obs'], "%Y%m%d")
+    obstime = Time(mjd, format='mjd')
+    delta_time = obstime - orbtime
     orbits['M'] = orbits['M'] + delta_time * 2 * np.pi / (orbits['a'] ** (3 / 2) * units.year)
-    orbits.meta['MJD'] = mjd
+    orbits.meta['day_obs'] = obstime.strftime('%Y%m%d')
     return orbits
 
 
@@ -150,9 +152,10 @@ def get_reference_frame(visitInfo) -> GCRS:
     Compute a GCRS reference frame at location and time of Visit info.
     """
     obstime = visitInfo.date.toAstropy()
-    location = EarthLocation.from_geodetic(lon=visitInfo.getLongitude().asDegrees(),
-                                           lat=visitInfo.getLatitude().asDegrees(),
-                                           height=visitInfo.getHeight().asDegrees())
+    observatory = visitInfo.getObservatory()
+    location = EarthLocation.from_geodetic(lon=observatory.getLongitude().asDegrees(),
+                                           lat=observatory.getLatitude().asDegrees(),
+                                           height=observatory.getElevation())
     obsgeoloc, obsgeovel = location.get_gcrs_posvel(obstime)
     with solar_system_ephemeris.set('builtin'):
         reference_frame = GCRS(obstime=obstime,
@@ -174,8 +177,8 @@ def propagate_injection_catalog(orbits: Table, visitInfo: VisitInfo) -> Table:
                           coordinates.z * coordinates.z)
     coordinates = coordinates.transform_to(reference_frame)
     orbits['delta'] = coordinates.distance.to('au')
-    orbits['RA2000'] = coordinates.ra.to('degree')
-    orbits['DEC2000'] = coordinates.dec.to('degree')
+    orbits['ra'] = coordinates.ra.to('degree')
+    orbits['dec'] = coordinates.dec.to('degree')
     orbits['mag'] = apparent_magnitude(orbits['r'],
                                        orbits['delta'],
                                        1,

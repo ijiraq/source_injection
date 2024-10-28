@@ -31,7 +31,7 @@ from typing import Any
 import numpy as np
 from astropy.table import Table, hstack, vstack
 from astropy.time import Time
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import SkyCoord, GCRS
 from astropy import units
 from scipy.stats import qmc
 
@@ -56,7 +56,7 @@ DEFAULT_ELEMENT_LIMITS = {
 DEFAULT_PARAMETERS = {
     'mjd': Time("J2000.0").mjd,
     'density': 2000,  # /sq.deg which is about 50 sources per HSC detector
-    'fov': 10,  # catalog FOV in degrees 
+    'fov': 180,  # catalog FOV in degrees 
     'mag_lim': (21, 28),  # Appropriate for 4 hours on Subaru HSC
 }
 
@@ -64,13 +64,13 @@ DEFAULT_PARAMETERS = {
 def generate_sso_injection_catalog(
         ra_centre: float,
         dec_centre: float,
+        day_obs: int,
         mag_lim: Sequence[float] | None = None,
         wcs: SkyWcs = None,
         fov: float | None = None,
-        mjd: float | None = None,
         density: int | None = None,
         number: int = 1,
-        seed: Any = None,
+        seed: Any = 123456789,
         log_level: int = logging.INFO,
         **kwargs: Any,
 ) -> Table:
@@ -114,12 +114,13 @@ def generate_sso_injection_catalog(
         The declination of the centre of the catalog in degrees.
     fov: float
         The diameter of the fov of the catalog in degrees.
-    mjd : float | Time("J2000").mjd
-        The epoch of the orbit generated (M at this epoch puts the source in
-        the heliocentric RA/DEC box set by ra_lim,dec_lim at that time)
+    day_obs : int 
+        The day_obs (YYYYMMDD) that this orbit files epoch is set to. 
+        (M at this epoch puts the source in the heliocentric RA/DEC box set 
+        by ra_lim,dec_lim at that epoch and this is added as a dimension)
     mag_lim : `Sequence` [`float`], optional
         The magnitude limits of the catalog in magnitudes.  The catalog has H
-        magnitudes assigned based on these magnitude limits being met at mjd.
+        magnitudes assigned based on these magnitude limits being met at day_obs
     number : `int`, optional
         The number of times to generate each unique combination of input
         parameters. The default is 1 (i.e., no repeats). This will be ignored
@@ -159,7 +160,7 @@ def generate_sso_injection_catalog(
     mag_lim = mag_lim is None and DEFAULT_PARAMETERS['mag_lim'] or mag_lim
     density = density is None and DEFAULT_PARAMETERS['density'] or density
     fov = fov is None and DEFAULT_PARAMETERS['fov'] or fov
-    mjd = mjd is None and DEFAULT_PARAMETERS['mjd'] or mjd
+
 
     elements = ['a', 'e', 'inc', 'Omega', 'omega', 'M']
     limits = [kwargs.pop(f"{f}_limits",
@@ -200,7 +201,7 @@ def generate_sso_injection_catalog(
     logger.info(f"Area of ecliptic {AREA_OF_ECLIPTIC}")
     logger.info(f"Aera of patch {area}")
     number_per_loop = len(param_table)*AREA_OF_ECLIPTIC/area
-    number_per_loop = int(min(number_per_loop, 1E6))
+    number_per_loop = int(min(number_per_loop, 1E8))
     logger.info(f"Generating {number_per_loop} orbits per iteration.")
     sampler = qmc.Halton(d=len(elements), seed=seed)
     num_of_workers = number_per_loop > 1E3 and -1 or 1
@@ -211,11 +212,20 @@ def generate_sso_injection_catalog(
         sample = sampler.random(n=number_per_loop, workers=num_of_workers)
         # generate a distribution of orbital elements
         orbits = Table(qmc.scale(sample, lower_limits, upper_limits),
-                       names=elements, meta={"MJD": mjd, "SSO": True})
+                       names=elements, meta={"day_obs": day_obs, "SSO": True})
         coords = sso.kepToHelioCartSkyCoord(orbits).transform_to('icrs')
-        orbits['ra'] = coords.ra.deg
-        orbits['dec'] = coords.dec.deg
-        
+        orbits['r'] = coords.distance.to('au')
+        reference_frame = GCRS(obstime=Time.strptime(str(orbits.meta["day_obs"]),
+                                                     "%Y%m%d"))
+        coordinates = coords.transform_to(reference_frame)
+        orbits['delta'] = coordinates.distance.to('au')
+        orbits['ra'] = coordinates.ra.deg
+        orbits['dec'] = coordinates.dec.deg
+        orbits['H'] = orbits['mag'] - sso.apparent_magnitude(orbits['r'],
+                                                             orbits['delta'],
+                                                             1,
+                                                             0)
+        orbits['source_type'] = 'Star'
         # select orbits whose current position is within the desired FOV
         field_centre = SkyCoord(ra=ra_centre, dec=dec_centre, unit='deg')
         orbits = orbits[coords.separation(field_centre) < (fov/2)*units.degree]

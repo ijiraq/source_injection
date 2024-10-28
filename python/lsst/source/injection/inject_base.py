@@ -230,6 +230,7 @@ class BaseInjectTask(PipelineTask):
         # Check for any injection catalog that might be an SSO orbit catalog.
         for idx, injection_catalog in enumerate(injection_catalogs):
             if injection_catalog.meta.get("SSO", False):
+                logger.info(f"Looking at {injection_catalog} of length {len(injection_catalog)}")
                 injection_catalogs[idx] = sso.propagate_injection_catalog(injection_catalog,
                                                                           input_exposure.visitInfo)
 

@@ -90,12 +90,20 @@ will be generated using Cartesian geometry.
         metavar="VALUE",
     )
     parser_general.add_argument(
+        "--day-obs",
+        type=int,
+        help="Date of catalog epoch in format YYYYMMDD (e.g. 20240601)",
+        required=True,
+        metavar="VALUE",
+    )
+    parser_general.add_argument(
         "-r",
         "--fov",
         type=float,
         help="Diameter of the catalog field of view, in degrees.",
         required=False,
         metavar="VALUE",
+        default=None,
     )
     parser_general.add_argument(
         "-m",
@@ -104,6 +112,7 @@ will be generated using Cartesian geometry.
         help="The magnitude limits of the catalog in magnitudes.",
         required=False,
         metavar="VALUE",
+        default=None,
     )
     parser_general.add_argument(
         "-n",
@@ -119,6 +128,7 @@ will be generated using Cartesian geometry.
         type=int,
         help="Desired source density (N/deg^2). If given, number option is ignored.",
         metavar="VALUE",
+        default=None,
     )
     parser_general.add_argument(
         "-p",
@@ -133,6 +143,7 @@ will be generated using Cartesian geometry.
         type=str,
         help="Seed override when generating quasi-random RA/Dec positions.",
         metavar="SEED",
+        default=None
     )
 
     # Butler options.
@@ -284,18 +295,17 @@ def main():
         logger.info("Using WCS in %s for %s.", wcs_type_name, dataset_ref.dataId)
 
     # Generate the source injection catalog.
-    mag_lim = vars(args).get("mag_lim", None)
-    density = vars(args).get("density", None)
-    seed = vars(args).get("seed", None)
+    
     table = generate_sso_injection_catalog(
         ra_centre=args.ra_centre,
         dec_centre=args.dec_centre,
+        day_obs=args.day_obs,
         fov=args.fov,
-        mag_lim=mag_lim,
+        mag_lim=args.mag_lim,
         wcs=wcs,
         number=args.number,
-        density=density,
-        seed=seed,
+        density=args.density,
+        seed=args.seed,
         **params,
     )
 
