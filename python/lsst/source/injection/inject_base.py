@@ -232,7 +232,9 @@ class BaseInjectTask(PipelineTask):
             if injection_catalog.meta.get("SSO", False):
                 logger.info(f"Looking at {injection_catalog} of length {len(injection_catalog)}")
                 injection_catalogs[idx] = sso.propagate_injection_catalog(injection_catalog,
-                                                                          input_exposure.visitInfo)
+                                                                          input_exposure.visitInfo,
+                                                                          input_exposure.wcs.getPixelScale()
+                                                                          )
 
         # Consolidate injection catalogs and compose main injection catalog.
         injection_catalog = self._compose_injection_catalog(injection_catalogs)

@@ -4,7 +4,7 @@ from astropy.coordinates import EarthLocation
 from astropy.coordinates import solar_system_ephemeris
 from astropy.table import Table
 from astropy.time import Time
-from lsst.afw.image import VisitInfo
+from lsst.afw.image import ExposureF
 import numpy as np
 
 BOWELL_G = -0.12
@@ -34,15 +34,14 @@ def apparent_magnitude(r: np.ndarray[float],
     return mag
 
 
-def keplerian_to_cartesian(**orbits: dict[str: np.ndarray]) -> np.ndarray:
+def keplerian_to_cartesian(**orbits: dict[str: np.ndarray]) -> [np.ndarray, np.ndarray]:
     """
-    Compute the cartesian positional elements given a set of keplerian elements
+    Compute the cartesian position and velocity elements given
+    a set of keplerian elements
 
     Parameters
     ----------
-    orbits: dict
-
-    orbits contains the following keys:
+    orbits: dict The dictionary orbits contains the following keys:
         a: semi-major axis (AU)
         e: eccentricity
         inc: inclination (radians)
@@ -71,6 +70,12 @@ def keplerian_to_cartesian(**orbits: dict[str: np.ndarray]) -> np.ndarray:
     q_vec[0, :] = (cos_E - orbits['e']) * (delau6 ** 2)
     q_vec[1, :] = delau7 * delau6 * sin_E
 
+    p_vec = np.zeros_like(cos_E, shape=(2, cos_E.shape[0]))
+
+    tmp = 1/(delau6*(1 - orbits['e']*cos_E))
+    p_vec[0, :] = -sin_E*tmp
+    p_vec[1, :] = delau7*cos_E*tmp/delau6
+
     mat = np.zeros_like(cos_i, shape=(3, 2, cos_i.shape[0]))
     d53 = delau5 * delau3
     d42 = delau4 * delau2
@@ -85,8 +90,9 @@ def keplerian_to_cartesian(**orbits: dict[str: np.ndarray]) -> np.ndarray:
 
     # Cartesian coordinates
     p = (mat * q_vec).sum(axis=1)
+    v = (mat * p_vec).sum(axis=1)
 
-    return p
+    return [p, v]
 
 
 def compute_E(e: np.array, M: np.array) -> np.array:
@@ -121,16 +127,17 @@ def compute_E(e: np.array, M: np.array) -> np.array:
     return E
 
 
-def kepToHelioCartSkyCoord(orbits: Table) -> SkyCoord:
+def kepToHelioCartSkyCoord(orbits: Table) -> [SkyCoord, np.ndarray]:
     """
     Provide SkyCoord object for a Table of keplarian orbital elements.
     """
-    xyz = keplerian_to_cartesian(**orbits['a', 'e', 'inc', 'Omega', 'omega', 'M'])
+    xyz, v_xyz = keplerian_to_cartesian(**orbits['a', 'e', 'inc', 'Omega', 'omega', 'M'])
     obstime = Time.strptime(str(orbits.meta['day_obs']), '%Y%m%d')
-    return SkyCoord(x=xyz[0], y=xyz[1], z=xyz[2],
-                    unit='au', obstime=obstime,
-                    frame='heliocentrictrueecliptic',
-                    representation_type='cartesian')
+    pos = SkyCoord(x=xyz[0], y=xyz[1], z=xyz[2],
+                   unit='au', obstime=obstime,
+                   frame='heliocentrictrueecliptic',
+                   representation_type='cartesian')
+    return pos, v_xyz * units.au/units.year
 
 
 def propagate_orbits(orbits, mjd) -> Table:
@@ -164,23 +171,37 @@ def get_reference_frame(visitInfo) -> GCRS:
     return reference_frame
 
 
-def propagate_injection_catalog(orbits: Table, visitInfo: VisitInfo) -> Table:
+def propagate_injection_catalog(orbits: Table,
+                                inputExposure: ExposureF) -> Table:
     """
     Compute the heliocentric ecliptic coordinates of the orbits at the time
     of the visit described by visitInfo
     """
-    reference_frame = get_reference_frame(visitInfo)
+    reference_frame = get_reference_frame(inputExposure.visitInfo)
+    pixel_scale = inputExposure.wcs.getPixelScale() * units.arcsec
+    time_space = inputExposure.visitInfo.exposureTime * units.second
     orbits = propagate_orbits(orbits, reference_frame.obstime.mjd)
-    coordinates = kepToHelioCartSkyCoord(orbits)
+    coordinates, v_xyz = kepToHelioCartSkyCoord(orbits)
+    coordinates2 = SkyCoord(x=coordinates.x + v_xyz[0] * time_space,
+                            y=coordinates.y + v_xyz[1] * time_space,
+                            z=coordinates.z + v_xyz[2] * time_space)
+    coordinates2 = coordinates2.transform_to(reference_frame)
+    coordinates = coordinates.transform_to(reference_frame)
+    total_separation = coordinates.separation(coordinates2)
+    position_angle = coordinates.position_angle(coordinates2)
+    number_of_steps = int(np.ceil(coordinates.separation(coordinates2)/pixel_scale))
     orbits['r'] = np.sqrt(coordinates.x * coordinates.x +
                           coordinates.y * coordinates.y +
                           coordinates.z * coordinates.z)
-    coordinates = coordinates.transform_to(reference_frame)
     orbits['delta'] = coordinates.distance.to('au')
-    orbits['ra'] = coordinates.ra.to('degree')
-    orbits['dec'] = coordinates.dec.to('degree')
-    orbits['mag'] = apparent_magnitude(orbits['r'],
-                                       orbits['delta'],
-                                       1,
-                                       orbits['H'])
+    for step in range(number_of_steps):
+        coordinates = coordinates.directional_offset_by(position_angle,
+                                                        total_separation/number_of_steps)
+        coordinates = coordinates.transform_to(reference_frame)
+        orbits['ra'] = coordinates.ra.to('degree')
+        orbits['dec'] = coordinates.dec.to('degree')
+        orbits['mag'] = apparent_magnitude(orbits['r'],
+                                           orbits['delta'],
+                                           1,
+                                           orbits['H']) + 2.5 * np.log10(number_of_steps)
     return orbits
