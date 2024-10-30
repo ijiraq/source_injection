@@ -257,6 +257,15 @@ def generate_sso_injection_catalog(
         grammar = "combination" if num_combinations == 1 else "combinations"
         extra_info = f"{len(source_table)} sources: {num_combinations} {grammar} repeated {number} times."
     logger.info("Generated an injection catalog containing %s", extra_info)
-    
+
+    source_table.meta['day_obs'] = day_obs
+    source_table.meta['fov'] = fov
+    source_table.meta['ra_centre'] = ra_centre
+    source_table.meta['dec_centre'] = dec_centre
+    source_table.meta['density'] = density
+    source_table.meta['mag_lim'] = mag_lim
+    source_table.meta['number'] = number
+    source_table.meta['seed'] = seed
+
     return source_table
 
