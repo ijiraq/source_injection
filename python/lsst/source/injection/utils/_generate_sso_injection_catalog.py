@@ -203,7 +203,7 @@ def generate_sso_injection_catalog(
     number_per_loop = len(param_table)*AREA_OF_ECLIPTIC/area
     number_per_loop = int(min(number_per_loop, 1E8))
     logger.info(f"Generating {number_per_loop} orbits per iteration.")
-    _seed = np.random.default_rng(seed).bit_generator
+    _seed = np.random.default_rng(int(seed)).bit_generator
     sampler = qmc.Halton(d=len(elements), seed=_seed)
     num_of_workers = number_per_loop > 1E3 and -1 or 1
     source_table = None

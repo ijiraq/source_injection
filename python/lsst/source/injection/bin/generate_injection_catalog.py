@@ -119,7 +119,7 @@ will be generated using Cartesian geometry.
     )
     parser_general.add_argument(
         "--seed",
-        type=str,
+        type=int,
         help="Seed override when generating quasi-random RA/Dec positions.",
         metavar="SEED",
     )
