@@ -176,32 +176,57 @@ def propagate_injection_catalog(orbits: Table,
     """
     Compute the heliocentric ecliptic coordinates of the orbits at the time
     of the visit described by visitInfo
+
+    if number_of_steps is greater than 1 we must vstack a set of rows for
+    each additional step
     """
     reference_frame = get_reference_frame(inputExposure.visitInfo)
     pixel_scale = inputExposure.wcs.getPixelScale() * units.arcsec
-    time_space = inputExposure.visitInfo.exposureTime * units.second
+    exposure_time = inputExposure.visitInfo.exposureTime * units.second
     orbits = propagate_orbits(orbits, reference_frame.obstime.mjd)
     coordinates, v_xyz = kepToHelioCartSkyCoord(orbits)
-    coordinates2 = SkyCoord(x=coordinates.x + v_xyz[0] * time_space,
-                            y=coordinates.y + v_xyz[1] * time_space,
-                            z=coordinates.z + v_xyz[2] * time_space)
+    dt = 3 * units.hour
+    coordinates2 = SkyCoord(x=coordinates.x + v_xyz[0] * dt,
+                            y=coordinates.y + v_xyz[1] * dt,
+                            z=coordinates.z + v_xyz[2] * dt)
     coordinates2 = coordinates2.transform_to(reference_frame)
     coordinates = coordinates.transform_to(reference_frame)
-    total_separation = coordinates.separation(coordinates2)
+    rate = coordinates.separation(coordinates2)/dt
     position_angle = coordinates.position_angle(coordinates2)
-    number_of_steps = int(np.ceil(coordinates.separation(coordinates2)/pixel_scale))
+    number_of_steps = np.ceil(coordinates.separation(coordinates2)/pixel_scale)
     orbits['r'] = np.sqrt(coordinates.x * coordinates.x +
                           coordinates.y * coordinates.y +
                           coordinates.z * coordinates.z)
     orbits['delta'] = coordinates.distance.to('au')
-    for step in range(number_of_steps):
-        coordinates = coordinates.directional_offset_by(position_angle,
-                                                        total_separation/number_of_steps)
-        coordinates = coordinates.transform_to(reference_frame)
-        orbits['ra'] = coordinates.ra.to('degree')
-        orbits['dec'] = coordinates.dec.to('degree')
-        orbits['mag'] = apparent_magnitude(orbits['r'],
-                                           orbits['delta'],
-                                           1,
-                                           orbits['H']) + 2.5 * np.log10(number_of_steps)
-    return orbits
+    orbits['rate'] = rate.to('arcsec/hour')
+    orbits['angle'] = position_angle.to('degree')
+    # coordinates = coordinates.directional_offset_by(position_angle,
+    #                                                total_separation / number_of_steps)
+    # coordinates = coordinates.transform_to(reference_frame)
+    # orbits['ra'] = coordinates.ra.to('degree')
+    # orbits['dec'] = coordinates.dec.to('degree')
+    # orbits['mag'] = apparent_magnitude(orbits['r'],
+    #                                    orbits['delta'],
+    #                                    1,
+    #                                    orbits['H']) + 2.5 * np.log10(number_of_steps)
+    new_orbits = dict([(k, []) for k in orbits.colnames])
+    for idx, steps in enumerate(number_of_steps):
+        orbit = orbits[idx]
+        coordinate = coordinates[idx]
+        rate = orbit['rate']
+        angle = orbit['angle']
+        motion_per_step = rate * exposure_time / number_of_steps
+        for step in steps:
+            for col in orbits.colnames:
+                new_orbits[col].append(orbit[col])
+            coordinate = coordinate.directional_offset_by(angle, motion_per_step)
+            coordinate = coordinate.transform_to(reference_frame)
+            new_orbits['ra'][-1] = coordinates.ra.to('degree')
+            new_orbits['dec'][-1] = coordinates.dec.to('degree')
+            new_orbits['mag'][-1] = apparent_magnitude(orbit['r'],
+                                                       orbit['delta'],
+                                                       1,
+                                                       orbit['H']) + 2.5 * np.log10(step)
+    new_orbits = Table(new_orbits, meta=orbits.meta)
+    new_orbits.meta['day_obs'] = reference_frame.obstime.strftime('%Y%m%d')
+    return new_orbits
