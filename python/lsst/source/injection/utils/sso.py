@@ -11,9 +11,11 @@ BOWELL_G = -0.12
 NEWTON_ITERS = 20
 
 
-def apparent_magnitude(r: np.ndarray[float],
-                       delta: np.ndarray[float],
-                       robs: np.ndarray[float] | float, h: float, g: float = BOWELL_G):
+def apparent_magnitude(r: np.ndarray[float] | float,
+                       delta: np.ndarray[float] | float,
+                       robs: np.ndarray[float] | float, 
+                       h: np.ndarray[float] | float, 
+                       g: float = BOWELL_G) -> np.ndarray[float] | float:
     """
     Compute the apparent magnitude given the observing circumstances and h
 
@@ -26,11 +28,16 @@ def apparent_magnitude(r: np.ndarray[float],
     """
     denom = 2 * r * delta
     cos_alpha = (-robs ** 2 + delta ** 2 + r ** 2) / denom
-    cos_alpha[cos_alpha > 1] = 1
+    if isinstance(cos_alpha, np.ndarray):
+        cos_alpha[cos_alpha > 1] = 1
+    elif cos_alpha > 1:
+        cos_alpha = 1
     alpha = np.arccos(cos_alpha)
     phi1 = np.exp(-3.33 * (np.tan(alpha / 2.0)) ** 0.63)
     phi2 = np.exp(-1.87 * (np.tan(alpha / 2.0)) ** 1.22)
     mag = 5.0 * np.log10(r * delta) + h - 2.5 * np.log10((1.0 - g) * phi1 + g * phi2)
+    if isinstance(r, float) and isinstance(mag, np.ndarray):
+        mag = mag[0]
     return mag
 
 
@@ -132,7 +139,7 @@ def kepToHelioCartSkyCoord(orbits: Table) -> [SkyCoord, np.ndarray]:
     Provide SkyCoord object for a Table of keplarian orbital elements.
     """
     xyz, v_xyz = keplerian_to_cartesian(**orbits['a', 'e', 'inc', 'Omega', 'omega', 'M'])
-    obstime = Time.strptime(str(orbits.meta['day_obs']), '%Y%m%d')
+    obstime = Time(str(orbits.meta['day_obs']))
     pos = SkyCoord(x=xyz[0], y=xyz[1], z=xyz[2],
                    unit='au', obstime=obstime,
                    frame='heliocentrictrueecliptic',
@@ -142,15 +149,15 @@ def kepToHelioCartSkyCoord(orbits: Table) -> [SkyCoord, np.ndarray]:
 
 def propagate_orbits(orbits, mjd) -> Table:
     """
-    Propogate the given table of orbits from orbit.meta['day_obs'] to given mjd.
+    Propagate the given table of orbits from orbit.meta['day_obs'] is the isot
 
     The orbits database must have orbits.meta['day_obs'] of the 'M' given in the table.
     """
-    orbtime = Time.strptime(orbits.meta['day_obs'], "%Y%m%d")
+    orbtime = Time(str(orbits.meta['day_obs']))
     obstime = Time(mjd, format='mjd')
     delta_time = obstime - orbtime
     orbits['M'] = orbits['M'] + delta_time * 2 * np.pi / (orbits['a'] ** (3 / 2) * units.year)
-    orbits.meta['day_obs'] = obstime.strftime('%Y%m%d')
+    orbits.meta['day_obs'] = obstime.isot
     return orbits
 
 
@@ -181,52 +188,72 @@ def propagate_injection_catalog(orbits: Table,
     each additional step
     """
     reference_frame = get_reference_frame(inputExposure.visitInfo)
-    pixel_scale = inputExposure.wcs.getPixelScale() * units.arcsec
+    pixel_scale = inputExposure.wcs.getPixelScale().asArcseconds() * units.arcsec
     exposure_time = inputExposure.visitInfo.exposureTime * units.second
     orbits = propagate_orbits(orbits, reference_frame.obstime.mjd)
     coordinates, v_xyz = kepToHelioCartSkyCoord(orbits)
-    dt = 3 * units.hour
-    coordinates2 = SkyCoord(x=coordinates.x + v_xyz[0] * dt,
-                            y=coordinates.y + v_xyz[1] * dt,
-                            z=coordinates.z + v_xyz[2] * dt)
+    dt = 24 * units.hour
+    orbits = propagate_orbits(orbits,
+                              reference_frame.obstime.mjd+dt.to('day').value)
+    coordinates2, v_xyz = kepToHelioCartSkyCoord(orbits)
+    # print(coordinates.transform_to('icrs')[0])
+    # print(v_xyz[:,0])
+    orbits['r'] = np.sqrt(coordinates.x * coordinates.x +
+                          coordinates.y * coordinates.y +
+                          coordinates.z * coordinates.z)
+    
+    # coordinates2 = SkyCoord(x=coordinates.x + v_xyz[0] * dt,
+    #                        y=coordinates.y + v_xyz[1] * dt,
+    #                        z=coordinates.z + v_xyz[2] * dt,
+    #                        obstime=reference_frame.obstime,
+    #                        frame='heliocentrictrueecliptic',
+    #                        representation_type='cartesian')
+    # print(coordinates2.transform_to('icrs')[0])
+    # print(coordinates.separation(coordinates2)[0].to('arcsec')/dt)
+    # raise IOError("JUNK")
     coordinates2 = coordinates2.transform_to(reference_frame)
     coordinates = coordinates.transform_to(reference_frame)
     rate = coordinates.separation(coordinates2)/dt
     position_angle = coordinates.position_angle(coordinates2)
-    number_of_steps = np.ceil(coordinates.separation(coordinates2)/pixel_scale)
-    orbits['r'] = np.sqrt(coordinates.x * coordinates.x +
-                          coordinates.y * coordinates.y +
-                          coordinates.z * coordinates.z)
     orbits['delta'] = coordinates.distance.to('au')
     orbits['rate'] = rate.to('arcsec/hour')
     orbits['angle'] = position_angle.to('degree')
-    # coordinates = coordinates.directional_offset_by(position_angle,
-    #                                                total_separation / number_of_steps)
-    # coordinates = coordinates.transform_to(reference_frame)
-    # orbits['ra'] = coordinates.ra.to('degree')
-    # orbits['dec'] = coordinates.dec.to('degree')
-    # orbits['mag'] = apparent_magnitude(orbits['r'],
-    #                                    orbits['delta'],
-    #                                    1,
-    #                                    orbits['H']) + 2.5 * np.log10(number_of_steps)
+
+    orbits['ra'] = coordinates.ra.to('degree')
+    orbits['dec'] = coordinates.dec.to('degree')
+    orbits['mag'] = apparent_magnitude(orbits['r'],
+                                       orbits['delta'],
+                                       1,
+                                       orbits['H'])
+    orbits.meta['day_obs'] = reference_frame.obstime.isot
+
+    return orbits
+
+def tailing():
+    """
+    Coded this up but decided to not use.
+    """
+    number_of_steps = np.ceil((coordinates.separation(coordinates2)/pixel_scale).value).astype('int')
+    
     new_orbits = dict([(k, []) for k in orbits.colnames])
     for idx, steps in enumerate(number_of_steps):
         orbit = orbits[idx]
         coordinate = coordinates[idx]
-        rate = orbit['rate']
-        angle = orbit['angle']
-        motion_per_step = rate * exposure_time / number_of_steps
-        for step in steps:
+        rate = orbit['rate']*orbits['rate'].unit
+        angle = orbit['angle']*orbits['angle'].unit
+        motion_per_step = rate * exposure_time / steps
+        for step in range(steps):
             for col in orbits.colnames:
                 new_orbits[col].append(orbit[col])
-            coordinate = coordinate.directional_offset_by(angle, motion_per_step)
+            coordinate = coordinate.directional_offset_by(angle, motion_per_step*(step+0.5))
             coordinate = coordinate.transform_to(reference_frame)
-            new_orbits['ra'][-1] = coordinates.ra.to('degree')
-            new_orbits['dec'][-1] = coordinates.dec.to('degree')
+            new_orbits['ra'][-1] = coordinate.ra.to('degree')
+            new_orbits['dec'][-1] = coordinate.dec.to('degree')
             new_orbits['mag'][-1] = apparent_magnitude(orbit['r'],
                                                        orbit['delta'],
                                                        1,
-                                                       orbit['H']) + 2.5 * np.log10(step)
+                                                       orbit['H']) + 2.5 * np.log10(steps)
     new_orbits = Table(new_orbits, meta=orbits.meta)
-    new_orbits.meta['day_obs'] = reference_frame.obstime.strftime('%Y%m%d')
+    new_orbits.meta['day_obs'] = reference_frame.obstime.isot
+
     return new_orbits
