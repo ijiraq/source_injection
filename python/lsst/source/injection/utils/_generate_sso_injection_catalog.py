@@ -57,7 +57,7 @@ DEFAULT_PARAMETERS = {
     'mjd': Time("J2000.0").mjd,
     'density': 2000,  # /sq.deg which is about 50 sources per HSC detector
     'fov': 180,  # catalog FOV in degrees 
-    'mag_lim': (21, 28),  # Appropriate for 4 hours on Subaru HSC
+    'mag_lim': (21, 28.0),  # Appropriate for 4 hours on Subaru HSC
 }
 
 
@@ -213,11 +213,13 @@ def generate_sso_injection_catalog(
         sample = sampler.random(n=number_per_loop, workers=num_of_workers)
         # generate a distribution of orbital elements
         orbits = Table(qmc.scale(sample, lower_limits, upper_limits),
-                       names=elements, meta={"day_obs": day_obs, "SSO": True})
-        coords = sso.kepToHelioCartSkyCoord(orbits).transform_to('icrs')
+                       names=elements, meta={"day_obs": Time.strptime(str(day_obs),
+                                                                      '%Y%m%d').isot,
+                                             "SSO": True})
+        coords, vxyz = sso.kepToHelioCartSkyCoord(orbits)
+        coords = coords.transform_to('icrs')
         orbits['r'] = coords.distance.to('au')
-        reference_frame = GCRS(obstime=Time.strptime(str(orbits.meta["day_obs"]),
-                                                     "%Y%m%d"))
+        reference_frame = GCRS(obstime=Time(orbits.meta["day_obs"]))
         coordinates = coords.transform_to(reference_frame)
         orbits['delta'] = coordinates.distance.to('au')
         orbits['ra'] = coordinates.ra.deg
@@ -259,7 +261,7 @@ def generate_sso_injection_catalog(
         extra_info = f"{len(source_table)} sources: {num_combinations} {grammar} repeated {number} times."
     logger.info("Generated an injection catalog containing %s", extra_info)
 
-    source_table.meta['day_obs'] = day_obs
+    source_table.meta['day_obs'] = Time.strptime(str(day_obs), '%Y%m%d').isot
     source_table.meta['fov'] = fov
     source_table.meta['ra_centre'] = ra_centre
     source_table.meta['dec_centre'] = dec_centre
