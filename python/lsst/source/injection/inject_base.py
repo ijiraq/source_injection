@@ -224,17 +224,17 @@ class BaseInjectTask(PipelineTask):
                 injection_catalogs = [Table(names=["ra", "dec", "source_type"])]
             else:
                 raise RuntimeError(
-                    "No injection sources overlap the data query. Check injection catalog coverage."
+                    ("No injection sources overlap the data query. "
+                     "Check injection catalog coverage.")
                 )
 
         # Check for any injection catalog that might be an SSO orbit catalog.
         for idx, injection_catalog in enumerate(injection_catalogs):
             if injection_catalog.meta.get("SSO", False):
-                logger.info(f"Looking at {injection_catalog} of length {len(injection_catalog)}")
+                self.log.info((f"Propagating length {len(injection_catalog)} "
+                               f"sources to {input_exposure.visitInfo.date}"))
                 injection_catalogs[idx] = sso.propagate_injection_catalog(injection_catalog,
-                                                                          input_exposure.visitInfo,
-                                                                          input_exposure.wcs.getPixelScale()
-                                                                          )
+                                                                          input_exposure)
 
         # Consolidate injection catalogs and compose main injection catalog.
         injection_catalog = self._compose_injection_catalog(injection_catalogs)
