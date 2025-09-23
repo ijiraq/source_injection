@@ -1,21 +1,21 @@
+import numpy as np
 from astropy import units
-from astropy.coordinates import SkyCoord, GCRS
-from astropy.coordinates import EarthLocation
-from astropy.coordinates import solar_system_ephemeris
+from astropy.coordinates import GCRS, EarthLocation, SkyCoord, solar_system_ephemeris
 from astropy.table import Table
 from astropy.time import Time
 from lsst.afw.image import ExposureF
-import numpy as np
 
 BOWELL_G = -0.12
 NEWTON_ITERS = 20
 
 
-def apparent_magnitude(r: np.ndarray[float] | float,
-                       delta: np.ndarray[float] | float,
-                       robs: np.ndarray[float] | float, 
-                       h: np.ndarray[float] | float, 
-                       g: float = BOWELL_G) -> np.ndarray[float] | float:
+def apparent_magnitude(
+    r: np.ndarray[float] | float,
+    delta: np.ndarray[float] | float,
+    robs: np.ndarray[float] | float,
+    h: np.ndarray[float] | float,
+    g: float = BOWELL_G,
+) -> np.ndarray[float] | float:
     """
     Compute the apparent magnitude given the observing circumstances and h
 
@@ -27,7 +27,7 @@ def apparent_magnitude(r: np.ndarray[float] | float,
         g (float): phase angle coefficient (following Bowell et al. 1989)
     """
     denom = 2 * r * delta
-    cos_alpha = (-robs ** 2 + delta ** 2 + r ** 2) / denom
+    cos_alpha = (-(robs**2) + delta**2 + r**2) / denom
     if isinstance(cos_alpha, np.ndarray):
         cos_alpha[cos_alpha > 1] = 1
     elif cos_alpha > 1:
@@ -41,7 +41,7 @@ def apparent_magnitude(r: np.ndarray[float] | float,
     return mag
 
 
-def keplerian_to_cartesian(**orbits: dict[str: np.ndarray]) -> [np.ndarray, np.ndarray]:
+def keplerian_to_cartesian(**orbits: dict[str : np.ndarray]) -> [np.ndarray, np.ndarray]:
     """
     Compute the cartesian position and velocity elements given
     a set of keplerian elements
@@ -58,30 +58,30 @@ def keplerian_to_cartesian(**orbits: dict[str: np.ndarray]) -> [np.ndarray, np.n
 
     """
     M = orbits["M"] % (2 * np.pi)
-    signe = np.sign(orbits['a'])
-    cos_i = np.cos(orbits['inc'])
-    sin_i = np.sqrt(1 - cos_i ** 2)
+    signe = np.sign(orbits["a"])
+    cos_i = np.cos(orbits["inc"])
+    sin_i = np.sqrt(1 - cos_i**2)
     delau1 = M
-    delau2 = np.cos(orbits['omega'])
-    delau3 = np.sin(orbits['omega'])
-    delau4 = np.cos(orbits['Omega'])
-    delau5 = np.sin(orbits['Omega'])
-    delau6 = signe * np.sqrt(orbits['a'] * signe)
-    delau7 = np.abs(delau6) * np.sqrt((1 - orbits['e'] ** 2) * signe)
+    delau2 = np.cos(orbits["omega"])
+    delau3 = np.sin(orbits["omega"])
+    delau4 = np.cos(orbits["Omega"])
+    delau5 = np.sin(orbits["Omega"])
+    delau6 = signe * np.sqrt(orbits["a"] * signe)
+    delau7 = np.abs(delau6) * np.sqrt((1 - orbits["e"] ** 2) * signe)
 
-    E = compute_E(orbits['e'], delau1)
+    E = compute_E(orbits["e"], delau1)
 
     cos_E = np.cos(E)
     sin_E = np.sin(E)
     q_vec = np.zeros_like(cos_E, shape=(2, cos_E.shape[0]))
-    q_vec[0, :] = (cos_E - orbits['e']) * (delau6 ** 2)
+    q_vec[0, :] = (cos_E - orbits["e"]) * (delau6**2)
     q_vec[1, :] = delau7 * delau6 * sin_E
 
     p_vec = np.zeros_like(cos_E, shape=(2, cos_E.shape[0]))
 
-    tmp = 1/(delau6*(1 - orbits['e']*cos_E))
-    p_vec[0, :] = -sin_E*tmp
-    p_vec[1, :] = delau7*cos_E*tmp/delau6
+    tmp = 1 / (delau6 * (1 - orbits["e"] * cos_E))
+    p_vec[0, :] = -sin_E * tmp
+    p_vec[1, :] = delau7 * cos_E * tmp / delau6
 
     mat = np.zeros_like(cos_i, shape=(3, 2, cos_i.shape[0]))
     d53 = delau5 * delau3
@@ -129,7 +129,7 @@ def compute_E(e: np.array, M: np.array) -> np.array:
             i += 1
             if i < NEWTON_ITERS:
                 continue
-            raise ValueError('No convergence after {i} iterations')
+            raise ValueError("No convergence after {i} iterations")
         break
     return E
 
@@ -138,26 +138,31 @@ def kepToHelioCartSkyCoord(orbits: Table) -> [SkyCoord, np.ndarray]:
     """
     Provide SkyCoord object for a Table of keplarian orbital elements.
     """
-    xyz, v_xyz = keplerian_to_cartesian(**orbits['a', 'e', 'inc', 'Omega', 'omega', 'M'])
-    obstime = Time(str(orbits.meta['day_obs']))
-    pos = SkyCoord(x=xyz[0], y=xyz[1], z=xyz[2],
-                   unit='au', obstime=obstime,
-                   frame='heliocentrictrueecliptic',
-                   representation_type='cartesian')
-    return pos, v_xyz * units.au/units.year
+    xyz, v_xyz = keplerian_to_cartesian(**orbits["a", "e", "inc", "Omega", "omega", "M"])
+    obstime = Time(str(orbits.meta["day_obs"]))
+    pos = SkyCoord(
+        x=xyz[0],
+        y=xyz[1],
+        z=xyz[2],
+        unit="au",
+        obstime=obstime,
+        frame="heliocentrictrueecliptic",
+        representation_type="cartesian",
+    )
+    return pos, v_xyz * units.au / units.year
 
 
 def propagate_orbits(orbits, mjd) -> Table:
-    """
-    Propagate the given table of orbits from orbit.meta['day_obs'] is the isot
+    """Propagate the given table of orbits from table epoch to given mjd
 
-    The orbits database must have orbits.meta['day_obs'] of the 'M' given in the table.
+    The orbits table has epoch of 'M' given as orbits.meta['day_obs']
+
     """
-    orbtime = Time(str(orbits.meta['day_obs']))
-    obstime = Time(mjd, format='mjd')
+    orbtime = Time(str(orbits.meta["day_obs"]))
+    obstime = Time(mjd, format="mjd")
     delta_time = obstime - orbtime
-    orbits['M'] = orbits['M'] + delta_time * 2 * np.pi / (orbits['a'] ** (3 / 2) * units.year)
-    orbits.meta['day_obs'] = obstime.isot
+    orbits["M"] = orbits["M"] + delta_time * 2 * np.pi / (orbits["a"] ** (3 / 2) * units.year)
+    orbits.meta["day_obs"] = obstime.isot
     return orbits
 
 
@@ -167,93 +172,50 @@ def get_reference_frame(visitInfo) -> GCRS:
     """
     obstime = visitInfo.date.toAstropy()
     observatory = visitInfo.getObservatory()
-    location = EarthLocation.from_geodetic(lon=observatory.getLongitude().asDegrees(),
-                                           lat=observatory.getLatitude().asDegrees(),
-                                           height=observatory.getElevation())
+    location = EarthLocation.from_geodetic(
+        lon=observatory.getLongitude().asDegrees(),
+        lat=observatory.getLatitude().asDegrees(),
+        height=observatory.getElevation(),
+    )
     obsgeoloc, obsgeovel = location.get_gcrs_posvel(obstime)
-    with solar_system_ephemeris.set('builtin'):
-        reference_frame = GCRS(obstime=obstime,
-                               obsgeoloc=obsgeoloc,
-                               obsgeovel=obsgeovel)
+    with solar_system_ephemeris.set("builtin"):
+        reference_frame = GCRS(obstime=obstime, obsgeoloc=obsgeoloc, obsgeovel=obsgeovel)
     return reference_frame
 
 
-def propagate_injection_catalog(orbits: Table,
-                                inputExposure: ExposureF) -> Table:
+def propagate_injection_catalog(orbits: Table, inputExposure: ExposureF) -> Table:
     """
-    Compute the heliocentric ecliptic coordinates of the orbits at the time
-    of the visit described by visitInfo
-
-    if number_of_steps is greater than 1 we must vstack a set of rows for
-    each additional step
+    Compute the local reference frame coordinates and rates of
+    motion for the table of orbits using inputExposure as the
+    reference frame.
     """
     reference_frame = get_reference_frame(inputExposure.visitInfo)
-    pixel_scale = inputExposure.wcs.getPixelScale().asArcseconds() * units.arcsec
-    exposure_time = inputExposure.visitInfo.exposureTime * units.second
+
     orbits = propagate_orbits(orbits, reference_frame.obstime.mjd)
     coordinates, v_xyz = kepToHelioCartSkyCoord(orbits)
+    # compute the helio centric distance using these coordinates
+    orbits["r"] = np.sqrt(
+        coordinates.x * coordinates.x + coordinates.y * coordinates.y + coordinates.z * coordinates.z
+    )
+
+    # get source motion per hour by computing a new set of coordinates
     dt = 24 * units.hour
-    orbits = propagate_orbits(orbits,
-                              reference_frame.obstime.mjd+dt.to('day').value)
+    orbits = propagate_orbits(orbits, reference_frame.obstime.mjd + dt.to("day").value)
     coordinates2, v_xyz = kepToHelioCartSkyCoord(orbits)
-    # print(coordinates.transform_to('icrs')[0])
-    # print(v_xyz[:,0])
-    orbits['r'] = np.sqrt(coordinates.x * coordinates.x +
-                          coordinates.y * coordinates.y +
-                          coordinates.z * coordinates.z)
-    
-    # coordinates2 = SkyCoord(x=coordinates.x + v_xyz[0] * dt,
-    #                        y=coordinates.y + v_xyz[1] * dt,
-    #                        z=coordinates.z + v_xyz[2] * dt,
-    #                        obstime=reference_frame.obstime,
-    #                        frame='heliocentrictrueecliptic',
-    #                        representation_type='cartesian')
-    # print(coordinates2.transform_to('icrs')[0])
-    # print(coordinates.separation(coordinates2)[0].to('arcsec')/dt)
-    # raise IOError("JUNK")
+
+    # move both sets of coordinates into the observer reference frame
     coordinates2 = coordinates2.transform_to(reference_frame)
     coordinates = coordinates.transform_to(reference_frame)
-    rate = coordinates.separation(coordinates2)/dt
+    rate = coordinates.separation(coordinates2) / dt
     position_angle = coordinates.position_angle(coordinates2)
-    orbits['delta'] = coordinates.distance.to('au')
-    orbits['rate'] = rate.to('arcsec/hour')
-    orbits['angle'] = position_angle.to('degree')
 
-    orbits['ra'] = coordinates.ra.to('degree')
-    orbits['dec'] = coordinates.dec.to('degree')
-    orbits['mag'] = apparent_magnitude(orbits['r'],
-                                       orbits['delta'],
-                                       1,
-                                       orbits['H'])
-    orbits.meta['day_obs'] = reference_frame.obstime.isot
+    orbits["delta"] = coordinates.distance.to("au")
+    orbits["rate"] = rate.to("arcsec/hour")
+    orbits["angle"] = position_angle.to("degree")
+
+    orbits["ra"] = coordinates.ra.to("degree")
+    orbits["dec"] = coordinates.dec.to("degree")
+    orbits["mag"] = apparent_magnitude(orbits["r"], orbits["delta"], 1, orbits["H"])
+    orbits.meta["day_obs"] = reference_frame.obstime.isot
 
     return orbits
-
-def tailing():
-    """
-    Coded this up but decided to not use.
-    """
-    number_of_steps = np.ceil((coordinates.separation(coordinates2)/pixel_scale).value).astype('int')
-    
-    new_orbits = dict([(k, []) for k in orbits.colnames])
-    for idx, steps in enumerate(number_of_steps):
-        orbit = orbits[idx]
-        coordinate = coordinates[idx]
-        rate = orbit['rate']*orbits['rate'].unit
-        angle = orbit['angle']*orbits['angle'].unit
-        motion_per_step = rate * exposure_time / steps
-        for step in range(steps):
-            for col in orbits.colnames:
-                new_orbits[col].append(orbit[col])
-            coordinate = coordinate.directional_offset_by(angle, motion_per_step*(step+0.5))
-            coordinate = coordinate.transform_to(reference_frame)
-            new_orbits['ra'][-1] = coordinate.ra.to('degree')
-            new_orbits['dec'][-1] = coordinate.dec.to('degree')
-            new_orbits['mag'][-1] = apparent_magnitude(orbit['r'],
-                                                       orbit['delta'],
-                                                       1,
-                                                       orbit['H']) + 2.5 * np.log10(steps)
-    new_orbits = Table(new_orbits, meta=orbits.meta)
-    new_orbits.meta['day_obs'] = reference_frame.obstime.isot
-
-    return new_orbits

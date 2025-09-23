@@ -12,7 +12,7 @@ config.log
 # Built by sconsUtils
 version.py
 /bin/
-
+*.dist-info
 # Pytest
 tests/.tests
 pytest_session.txt
