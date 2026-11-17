@@ -3,7 +3,7 @@ from astropy import units
 from astropy.coordinates import GCRS, EarthLocation, SkyCoord, solar_system_ephemeris
 from astropy.table import Table
 from astropy.time import Time
-from lsst.afw.image import ExposureF
+from lsst.afw.image import ExposureF, VisitInfo
 
 BOWELL_G = -0.12
 NEWTON_ITERS = 20
@@ -166,11 +166,11 @@ def propagate_orbits(orbits, mjd) -> Table:
     return orbits
 
 
-def get_reference_frame(visitInfo) -> GCRS:
+def get_reference_frame(visitInfo: VisitInfo, time_offset=0 * units.day) -> GCRS:
     """
     Compute a GCRS reference frame at location and time of Visit info.
     """
-    obstime = visitInfo.date.toAstropy()
+    obstime = visitInfo.date.toAstropy() + time_offset
     observatory = visitInfo.getObservatory()
     location = EarthLocation.from_geodetic(
         lon=observatory.getLongitude().asDegrees(),
@@ -184,28 +184,41 @@ def get_reference_frame(visitInfo) -> GCRS:
 
 
 def propagate_injection_catalog(orbits: Table, inputExposure: ExposureF) -> Table:
-    """
-    Compute the local reference frame coordinates and rates of
+    """Compute the local reference frame coordinates and rates of
     motion for the table of orbits using inputExposure as the
     reference frame.
     """
-    reference_frame = get_reference_frame(inputExposure.visitInfo)
+    # get source motion per hour by computing a new set of coordinates
+    dt = 24 * units.hour
+    reference_frame = get_reference_frame(inputExposure.visitInfo, time_offset=dt)
+    orbits = propagate_orbits(orbits, reference_frame.obstime.mjd)
+    coordinates2, v_xyz = kepToHelioCartSkyCoord(orbits)
+    # move both sets of coordinates into the observer reference frame
+    coordinates2 = coordinates2.transform_to(reference_frame)
+    # express these as topcentric ICRS
+    coordinates2 = SkyCoord(
+        coordinates2.ra,
+        coordinates2.dec,
+        distance=coordinates2.distance,
+        obstime=coordinates2.obstime,
+        frame="icrs",
+    )
 
+    reference_frame = get_reference_frame(inputExposure.visitInfo)
     orbits = propagate_orbits(orbits, reference_frame.obstime.mjd)
     coordinates, v_xyz = kepToHelioCartSkyCoord(orbits)
     # compute the helio centric distance using these coordinates
     orbits["r"] = np.sqrt(
         coordinates.x * coordinates.x + coordinates.y * coordinates.y + coordinates.z * coordinates.z
     )
-
-    # get source motion per hour by computing a new set of coordinates
-    dt = 24 * units.hour
-    orbits = propagate_orbits(orbits, reference_frame.obstime.mjd + dt.to("day").value)
-    coordinates2, v_xyz = kepToHelioCartSkyCoord(orbits)
-
-    # move both sets of coordinates into the observer reference frame
-    coordinates2 = coordinates2.transform_to(reference_frame)
     coordinates = coordinates.transform_to(reference_frame)
+    coordinates = SkyCoord(
+        coordinates.ra,
+        coordinates.dec,
+        distance=coordinates.distance,
+        obstime=coordinates.obstime,
+        frame="icrs",
+    )
     rate = coordinates.separation(coordinates2) / dt
     position_angle = coordinates.position_angle(coordinates2)
 

@@ -174,7 +174,9 @@ def generate_sso_injection_catalog(
     if density:
         area = 4 * np.pi * np.sin(np.radians(fov) / 4) ** 2
         area = area * (180 / np.pi) ** 2
-        rows = list(itertools.product * values)
+        rows = [1]
+        if len(values) > 0:
+            rows = list(itertools.product(*values))
         number = np.round(density * area / len(rows)).astype(int)
         if number > 0:
             logger.info(
@@ -193,14 +195,14 @@ def generate_sso_injection_catalog(
     logger.info(f"Area of ecliptic {AREA_OF_ECLIPTIC}")
     logger.info(f"Aera of patch {area}")
     number_per_loop = len(param_table) * AREA_OF_ECLIPTIC / area
-    number_per_loop = int(min(number_per_loop, 1e8))
+    number_per_loop = int(min(number_per_loop, 1e6))
     logger.info(f"Generating {number_per_loop} orbits per iteration.")
     _seed = np.random.default_rng(int(seed))
     sampler = qmc.Halton(d=len(elements), seed=_seed)
     num_of_workers = number_per_loop > 1e3 and -1 or 1
+    logger.info(f"Creating {number_per_loop} orbits using {num_of_workers} workers")
     source_table = None
     while True:
-        logger.info(f"Creating {number_per_loop} orbits using " f"{num_of_workers} workers")
         sample = sampler.random(n=number_per_loop, workers=num_of_workers)
         # generate a distribution of orbital elements
         orbits = Table(
@@ -228,6 +230,7 @@ def generate_sso_injection_catalog(
             source_table = orbits
         else:
             source_table = vstack([source_table, orbits])
+        del orbits
         if len(source_table) >= len(param_table):
             break
 
